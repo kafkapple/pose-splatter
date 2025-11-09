@@ -1,0 +1,52 @@
+name: pose-splatter
+channels:
+  - pytorch
+  - nvidia
+  - conda-forge
+  - defaults
+
+dependencies:
+  # Python
+  - python=3.10
+
+  # PyTorch with CUDA
+  - pytorch=2.0.0
+  - torchvision=0.15.0
+  - pytorch-cuda=11.8
+
+  # Conda packages
+  - numpy>=1.24.0
+  - matplotlib>=3.7.0
+
+  # Pip packages
+  - pip
+  - pip:
+    # 3D Gaussian Splatting
+    - gsplat>=0.1.0
+
+    # Sparse operations (may need wheel URL)
+    - torch-scatter>=2.1.0
+
+    # Data handling
+    - zarr>=2.13.0
+    - h5py>=3.8.0
+
+    # Computer vision
+    - opencv-python>=4.7.0
+
+    # Metrics
+    - torchmetrics>=0.11.0
+
+    # Visualization
+    - Pillow>=9.5.0
+
+    # Utilities
+    - tqdm>=4.65.0
+    - joblib>=1.2.0
+
+# Installation instructions:
+# conda env create -f environment.yml
+# conda activate pose-splatter
+#
+# If torch-scatter installation fails, run:
+# pip install torch-scatter -f https://data.pyg.org/whl/torch-2.0.0+cu118.html

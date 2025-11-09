@@ -1,0 +1,35 @@
+# Pose Splatter - Python Dependencies
+# Installation: pip install -r requirements.txt
+
+# Core Deep Learning
+torch==2.0.0
+torchvision==0.15.0
+torchmetrics>=0.11.0
+
+# 3D Gaussian Splatting
+gsplat>=0.1.0
+
+# Sparse Operations
+torch-scatter>=2.1.0
+
+# Data Storage & Processing
+zarr>=2.13.0
+h5py>=3.8.0
+numpy>=1.24.0
+
+# Computer Vision
+opencv-python>=4.7.0
+
+# Visualization
+matplotlib>=3.7.0
+Pillow>=9.5.0
+
+# Utilities
+tqdm>=4.65.0
+joblib>=1.2.0
+
+# Note: PyTorch with CUDA should be installed via conda:
+# conda install pytorch==2.0.0 torchvision==0.15.0 pytorch-cuda=11.8 -c pytorch -c nvidia
+#
+# torch-scatter installation may require specifying the wheel URL:
+# pip install torch-scatter -f https://data.pyg.org/whl/torch-2.0.0+cu118.html
