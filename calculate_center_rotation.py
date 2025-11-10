@@ -73,6 +73,7 @@ def process_chunk_center_angle(config, chunk_num, frame_list):
         ds=ds,
         auto_orient=True,
         load_up_direction=not config["adaptive_camera"],
+        up_fn=os.path.join(config["project_directory"], config["vertical_lines_fn"]),
     )
 
     obs = np.array([i for i in range(len(Ps)) if i not in holdout_views], dtype=int)

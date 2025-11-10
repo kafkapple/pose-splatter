@@ -21,6 +21,50 @@ pip install torch torchvision torchaudio --index-url https://download.pytorch.or
 pip install gsplat torchmetrics matplotlib seaborn pandas tabulate h5py zarr
 ```
 
+#### Dataset Setup
+
+This project uses the **DANNCE `markerless_mouse_1` dataset** for demonstration.
+
+**Option 1: Demo Data (Quick Start)**
+```bash
+# Download demo videos
+wget -O vids.zip https://tinyurl.com/DANNCEmm1vids
+unzip vids.zip -d data/markerless_mouse_1_nerf/
+
+# Download preprocessed data from Google Drive
+# Includes: undistorted videos, 2D keypoints, silhouettes
+# See: https://github.com/tqxli/dannce-pytorch
+```
+
+**Option 2: Full Training Dataset**
+- Access via [Duke Research Data Repository](https://github.com/tqxli/dannce-pytorch)
+- Follow instructions in the DANNCE-PyTorch repository
+
+**Expected Data Structure**:
+```
+data/markerless_mouse_1_nerf/
+├── videos_undist/          # 6-camera RGB videos (128MB)
+│   ├── 0.mp4              # Camera 0: 1152×1024, 18K frames
+│   ├── 1.mp4 ... 5.mp4    # Cameras 1-5
+├── simpleclick_undist/     # Segmentation masks (64MB)
+│   ├── 0.mp4 ... 5.mp4    # Binary masks for each camera
+├── camera_params.h5        # Camera calibration (5KB)
+└── keypoints2d_undist/     # 2D keypoint detections (55MB)
+```
+
+**Dataset Specifications**:
+- **Cameras**: 6 synchronized views
+- **Resolution**: 1152 × 1024 pixels
+- **Frame Rate**: 100 FPS
+- **Total Frames**: 18,000 (3 minutes)
+- **Subject**: Mouse in natural behavior
+
+**Citation**:
+- Original DANNCE: [spoonsso/DANNCE](https://github.com/spoonsso/DANNCE)
+- PyTorch Implementation: [tqxli/dannce-pytorch](https://github.com/tqxli/dannce-pytorch)
+
+---
+
 #### Automated Pipeline (Recommended)
 Run the full pipeline with a single command:
 ```bash
@@ -132,6 +176,207 @@ For detailed analysis guide, see [docs/reports/ANALYSIS_GUIDE.md](docs/reports/A
 #### Novel View Synthesis
 
 Pose Splatter performs **novel view synthesis** - generating new views of the animal from different camera angles using the trained 3D Gaussian model. This is not image upsampling, but rather creating completely new viewpoints.
+
+#### Comprehensive Visualization Pipeline (NEW!)
+
+After training, generate all visualization types with a single command:
+
+```bash
+# Run complete visualization pipeline
+bash run_all_visualization.sh
+
+# This generates:
+# 1. Multi-view renders (6 camera angles for frame 0)
+# 2. Temporal sequence (30 consecutive frames + video)
+# 3. 360-degree rotation (24 angles + video)
+# 4. 3D point cloud export (PLY format)
+```
+
+**Individual Visualization Scripts**:
+
+```bash
+# 1. Multi-view rendering (all 6 cameras)
+python3 generate_multiview.py
+
+# 2. Temporal sequence with video
+python3 generate_temporal_video.py
+
+# 3. 360-degree rotation views
+python3 generate_360_rotation.py
+
+# 4. Export 3D point cloud
+python3 export_point_cloud.py --frame 0 --output pointcloud.ply
+```
+
+**Output Structure**:
+```
+output/markerless_mouse_nerf/
+├── renders/
+│   ├── multiview/          # 6 camera views of frame 0
+│   │   ├── frame0000_view0.png
+│   │   └── ... view1-5.png
+│   ├── temporal/           # Temporal sequence
+│   │   ├── frame0000.png ... frame0029.png
+│   │   └── temporal_sequence.mp4
+│   └── rotation360/        # 360-degree rotation
+│       ├── rot000.png ... rot023.png
+│       └── rotation360.mp4
+└── pointclouds/
+    └── frame0000.ply       # 3D Gaussian point cloud
+```
+
+**Prerequisites for Video Generation**:
+```bash
+# Install FFmpeg with x264 codec
+conda install -c conda-forge x264 ffmpeg
+```
+
+**Point Cloud Viewing**:
+- Use MeshLab, CloudCompare, or Blender to view `.ply` files
+- Contains 3D positions, RGB colors, and opacity values
+
+For detailed implementation and troubleshooting, see [VISUALIZATION_REPORT.md](VISUALIZATION_REPORT.md)
+
+---
+
+### 3D Export & Blender Integration (NEW!)
+
+Export your trained 3D Gaussian Splatting model for use in external 3D software.
+
+#### Single Frame Export
+
+**Export Complete Gaussian Parameters**:
+```bash
+# Export as NumPy NPZ (recommended for research)
+python3 export_gaussian_full.py --frame 0 --format npz
+
+# Export as extended PLY (for Gaussian Splatting viewers)
+python3 export_gaussian_full.py --frame 0 --format ply_extended
+
+# Export as JSON (for inspection)
+python3 export_gaussian_full.py --frame 0 --format json
+```
+
+**Export Basic Point Cloud**:
+```bash
+# Export single frame as PLY
+python3 export_point_cloud.py --frame 0 --output pointcloud.ply
+```
+
+#### Multi-Frame Animation Sequence
+
+Export multiple frames for animation workflows:
+
+```bash
+# Export 30 frames (PLY + NPZ)
+python3 export_animation_sequence.py \
+    --start_frame 0 \
+    --num_frames 30 \
+    --ply --npz
+
+# Export 60 frames with JSON metadata
+python3 export_animation_sequence.py \
+    --start_frame 0 \
+    --num_frames 60 \
+    --ply --npz --json
+```
+
+**Output Structure**:
+```
+output/markerless_mouse_nerf/animation/
+├── pointclouds/            # PLY point clouds
+│   ├── frame0000.ply       # 16,000 points each (~1.2MB)
+│   ├── frame0001.ply
+│   └── ...
+├── gaussians_npz/          # Full Gaussian parameters
+│   ├── frame0000.npz       # Complete params (~730KB)
+│   ├── frame0001.npz
+│   └── ...
+└── gaussians_json/         # Metadata (optional)
+    ├── frame0000.json
+    └── ...
+```
+
+#### Blender Integration
+
+Import your 3D reconstructions into Blender:
+
+```bash
+# Option 1: Use Blender GUI
+# 1. Open Blender
+# 2. Switch to Scripting workspace
+# 3. Open: blender_import_pointcloud.py
+# 4. Edit the file paths at the bottom
+# 5. Run script (Alt+P)
+
+# Option 2: Command line
+blender --background --python blender_import_pointcloud.py
+```
+
+**Blender Script Features**:
+- Import single PLY file as particle system
+- Import NPZ as Gaussian instances with rotation/scale
+- Import animation sequence with keyframe visibility
+- Automatic material creation with vertex colors
+
+**Edit the script to choose import mode**:
+```python
+# In blender_import_pointcloud.py, uncomment your preferred option:
+
+# Single PLY file
+PLY_FILE = "output/markerless_mouse_nerf/pointclouds/frame0000.ply"
+
+# NPZ Gaussian data
+# NPZ_FILE = "output/markerless_mouse_nerf/gaussians/gaussian_frame0000.npz"
+
+# Animation sequence
+# PLY_DIR = "output/markerless_mouse_nerf/animation/pointclouds"
+```
+
+#### Export Formats Comparison
+
+| Format | Size | Use Case | Contains |
+|--------|------|----------|----------|
+| **PLY** | 1.2MB | Viewing in 3D software | Position, RGB, opacity |
+| **NPZ** | 730KB | Research & analysis | All Gaussian params (means, quats, scales, opacities, colors) |
+| **JSON** | 54KB | Inspection & debugging | Metadata + 100 sample Gaussians |
+| **PLY Extended** | ~2MB | Advanced Gaussian viewers | PLY + quaternions + scales |
+
+#### Supported Software
+
+- **MeshLab**: PLY viewing and editing
+- **CloudCompare**: Point cloud analysis
+- **Blender**: Animation and rendering
+- **Python**: NumPy/SciPy analysis with NPZ
+- **Gaussian Splatting Viewers**: Extended PLY format
+
+#### Example Workflow: Blender Animation
+
+```bash
+# 1. Export 60-frame sequence
+python3 export_animation_sequence.py --start_frame 0 --num_frames 60 --ply
+
+# 2. Create temporal video (optional)
+python3 generate_temporal_video.py
+
+# 3. Import into Blender
+blender --background --python blender_import_pointcloud.py
+
+# 4. In Blender:
+#    - Set frame range 1-60
+#    - Add camera animation
+#    - Set up lighting
+#    - Render animation
+```
+
+**Tips for Blender**:
+- Enable GPU rendering for faster previews
+- Use EEVEE for real-time preview
+- Use Cycles for final quality renders
+- Adjust particle size in Point Cloud settings (0.001-0.01)
+- Enable vertex color display in Material Preview mode
+
+---
 
 #### Render Specific Frames/Views
 
@@ -274,8 +519,31 @@ python3 compare_configs.py \
 - [Analysis Guide](docs/reports/ANALYSIS_GUIDE.md) - Complete analysis workflow
 - [Tools Summary](docs/reports/TOOLS_SUMMARY.md) - All available scripts and utilities
 
+#### Visualization Reports (NEW!)
+- **[Visualization Implementation Report](reports/VISUALIZATION_REPORT.md)** - Technical implementation details
+- **[Safe Execution Guide](reports/SAFE_EXECUTION_GUIDE.md)** - GPU memory management guide
+- **[Work Summary](reports/WORK_SUMMARY.md)** - Complete work summary
+- **[Changelog](reports/CHANGELOG.md)** - Detailed change history
+
+### Recent Updates (2025-11-10)
+
+- ✅ **3D Export & Blender Integration**: Complete 3D data export system
+  - Full Gaussian parameters export (NPZ, PLY Extended, JSON formats)
+  - Multi-frame animation sequence export
+  - Blender import scripts with particle system and keyframe animation
+  - Support for MeshLab, CloudCompare, and custom viewers
+- ✅ **Visualization Pipeline**: Complete implementation of 4 visualization types
+  - Multi-view rendering (6 cameras)
+  - Temporal sequence with video generation (60 frames, 30 FPS)
+  - 360-degree rotation views (19 angles)
+  - 3D point cloud export (PLY format, 16,000 points)
+- ✅ **Integrated Script**: `run_all_visualization.sh` for one-command execution
+- ✅ **Environment Fix**: torch_scatter compatibility for PyTorch 2.6.0 + CUDA 12.4
+
 ### Project Checklist
 - [x] Code on GitHub
+- [x] Comprehensive visualization pipeline
+- [x] Automated execution scripts
 - [ ] Camera-ready on arXiv
 - [ ] Add links to data
 - [ ] Add more detailed usage
