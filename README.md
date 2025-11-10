@@ -342,12 +342,13 @@ PLY_FILE = "output/markerless_mouse_nerf/pointclouds/frame0000.ply"
 | **JSON** | 54KB | Inspection & debugging | Metadata + 100 sample Gaussians |
 | **PLY Extended** | ~2MB | Advanced Gaussian viewers | PLY + quaternions + scales |
 
-#### Supported Software
+#### Supported Software & Visualization Tools
 
+- **Rerun.io** ⭐: Interactive 3D visualization with timeline (NPZ, animation sequences)
 - **MeshLab**: PLY viewing and editing
 - **CloudCompare**: Point cloud analysis
-- **Blender**: Animation and rendering
-- **Python**: NumPy/SciPy analysis with NPZ
+- **Blender**: Animation and rendering (PLY, NPZ)
+- **Python (matplotlib)**: Static visualization and analysis (NPZ)
 - **Gaussian Splatting Viewers**: Extended PLY format
 
 #### Example Workflow: Blender Animation
@@ -375,6 +376,169 @@ blender --background --python blender_import_pointcloud.py
 - Use Cycles for final quality renders
 - Adjust particle size in Point Cloud settings (0.001-0.01)
 - Enable vertex color display in Material Preview mode
+
+---
+
+#### Interactive Visualization with Rerun.io ⭐ NEW!
+
+Real-time 3D interactive visualization powered by [Rerun.io](https://rerun.io/).
+
+**Installation**:
+```bash
+pip install rerun-sdk
+```
+
+**Single Frame Visualization**:
+```bash
+# Launch interactive 3D viewer (requires display)
+python3 visualize_gaussian_rerun.py output/markerless_mouse_nerf/gaussians/gaussian_frame0000.npz
+
+# Custom point size
+python3 visualize_gaussian_rerun.py file.npz --point_size 0.01
+
+# SSH/Headless environments - Save to .rrd file
+python3 visualize_gaussian_rerun.py file.npz --save output.rrd
+# Then download and view locally: rerun output.rrd
+
+# SSH/Headless environments - Web server mode
+python3 visualize_gaussian_rerun.py file.npz --web 9090
+# Open http://localhost:9090 in browser (or forward port via SSH)
+```
+
+**Animation Sequence with Timeline**:
+```bash
+# Interactive timeline for animation (requires display)
+python3 visualize_gaussian_rerun.py output/markerless_mouse_nerf/animation/gaussians_npz/ --sequence
+
+# SSH/Headless - Save animation to .rrd file
+python3 visualize_gaussian_rerun.py output/markerless_mouse_nerf/animation/gaussians_npz/ --sequence --save animation.rrd
+
+# SSH/Headless - Web server for animation
+python3 visualize_gaussian_rerun.py output/markerless_mouse_nerf/animation/gaussians_npz/ --sequence --web 9090
+```
+
+**Compare Multiple Frames Side-by-Side**:
+```bash
+python3 visualize_gaussian_rerun.py \
+    --compare \
+    output/markerless_mouse_nerf/animation/gaussians_npz/frame0000.npz \
+    output/markerless_mouse_nerf/animation/gaussians_npz/frame0015.npz \
+    output/markerless_mouse_nerf/animation/gaussians_npz/frame0029.npz
+```
+
+**Rerun Features**:
+- **Interactive 3D Navigation**: Rotate, pan, zoom with mouse
+- **Layer Toggle**: Show/hide different visualizations (RGB, opacity, scale)
+- **Timeline Control**: Scrub through animation frames
+- **Real-time Updates**: Instant visualization without preprocessing
+- **Multi-view**: Compare multiple frames simultaneously
+- **Statistics Display**: Live Gaussian parameter statistics
+
+**SSH/Headless Environment Support**:
+
+If you encounter display errors (e.g., `WAYLAND_DISPLAY not set`), use one of these alternatives:
+
+**Option 1: Save to .rrd file (Recommended for SSH)**:
+```bash
+# Save visualization to file
+python3 visualize_gaussian_rerun.py file.npz --save output.rrd
+
+# Download the .rrd file to your local machine, then view:
+rerun output.rrd
+```
+
+**Option 2: Web server mode**:
+```bash
+# Terminal 1: Start Rerun web server
+rerun --port 9090
+
+# Terminal 2: Connect visualization to the server
+python3 visualize_gaussian_rerun.py file.npz --web 9090
+
+# For SSH access, forward the port (on your local machine):
+ssh -L 9090:localhost:9090 user@server
+
+# Open browser: http://localhost:9090
+```
+
+Both options work with `--sequence` and `--compare` modes.
+
+**권장 방법 (SSH 환경)**:
+- `.rrd` 파일로 저장 → 로컬 컴퓨터로 다운로드 후 `rerun` 명령으로 보기
+- 728KB 파일 크기로 다운로드가 빠르고 간편합니다
+
+**Visualization Layers**:
+- `gaussian/points`: RGB colored point cloud
+- `gaussian/opacity`: Grayscale visualization by opacity
+- `gaussian/scale`: Color-coded by Gaussian scale
+- `stats`: Text overlay with parameter statistics
+
+**Alternative: Matplotlib Static Visualization**:
+```bash
+# Generate static plots with matplotlib
+python3 visualize_gaussian.py output/markerless_mouse_nerf/gaussians/gaussian_frame0000.npz
+
+# Output: gaussian_frame0000_visualization.png (6 subplots)
+# - 3D point cloud (RGB, opacity, scale)
+# - Histograms (opacity, scale, color distributions)
+```
+
+**Example Usage Scenarios**:
+
+*Quick Preview - Single Frame*:
+```bash
+# View the first reconstructed frame
+python3 visualize_gaussian_rerun.py \
+    exports/markerless_mouse_nerf_20251110_150641/gaussians/gaussian_frame0000.npz
+```
+
+*Analyze Motion - Animation Timeline*:
+```bash
+# Scrub through 30-frame animation sequence
+python3 visualize_gaussian_rerun.py \
+    exports/markerless_mouse_nerf_20251110_150641/animation/gaussians_npz/ \
+    --sequence
+```
+
+*Compare Frames - Side-by-Side View*:
+```bash
+# Compare start, middle, and end frames
+python3 visualize_gaussian_rerun.py --compare \
+    exports/markerless_mouse_nerf_20251110_150641/animation/gaussians_npz/frame0000.npz \
+    exports/markerless_mouse_nerf_20251110_150641/animation/gaussians_npz/frame0014.npz \
+    exports/markerless_mouse_nerf_20251110_150641/animation/gaussians_npz/frame0029.npz
+```
+
+*Adjust Visualization Quality*:
+```bash
+# Larger points for better visibility
+python3 visualize_gaussian_rerun.py file.npz --point_size 0.01
+
+# Smaller points for dense clouds
+python3 visualize_gaussian_rerun.py file.npz --point_size 0.002
+```
+
+**Rerun Viewer Controls**:
+- **Mouse Navigation**:
+  - Left click + drag: Rotate camera
+  - Right click + drag: Pan camera
+  - Scroll wheel: Zoom in/out
+  - Middle click + drag: Pan camera
+- **Layer Panel** (left sidebar):
+  - Toggle `gaussian/points` for RGB visualization
+  - Toggle `gaussian/opacity` for opacity heatmap
+  - Toggle `gaussian/scale` for scale heatmap
+  - Toggle `stats` for parameter statistics
+- **Timeline** (bottom, sequence mode only):
+  - Drag slider to scrub frames
+  - Click ▶ to play animation
+  - Adjust playback speed
+
+**What You'll See**:
+- **RGB View**: 16,000 colored 3D points representing the mouse
+- **Opacity View**: Grayscale visualization showing transparency values
+- **Scale View**: Color-coded by Gaussian size (red = large, blue = small)
+- **Statistics Panel**: Real-time parameter stats (mean, std dev)
 
 ---
 
