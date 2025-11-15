@@ -304,25 +304,27 @@ class GaussianRenderer2D(GaussianRenderer):
         colors = torch.clamp(colors, 0.0, 1.0)             # Clamp colors
         opacities = torch.sigmoid(logit_opacities)         # Sigmoid for opacities
 
-        # Initialize canvas
+        # Initialize canvas (requires_grad=True to enable backprop)
         canvas = torch.zeros(
             (self.height, self.width, 3),
             device=self.device,
-            dtype=torch.float32
+            dtype=torch.float32,
+            requires_grad=True
         )
         alpha_canvas = torch.zeros(
             (self.height, self.width),
             device=self.device,
-            dtype=torch.float32
+            dtype=torch.float32,
+            requires_grad=True
         )
 
         # Sort Gaussians by depth (for proper alpha blending)
         # For 2D, we can use y-coordinate or keep original order
         # Here we keep original order for simplicity
 
-        # Splat each Gaussian
+        # Splat each Gaussian (accumulate contributions)
         for i in range(N):
-            self._splat_gaussian_2d(
+            canvas, alpha_canvas = self._splat_gaussian_2d(
                 canvas,
                 alpha_canvas,
                 means_2d[i],
@@ -349,20 +351,24 @@ class GaussianRenderer2D(GaussianRenderer):
         rotation: torch.Tensor,
         color: torch.Tensor,
         opacity: torch.Tensor,
-    ):
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
         """
         Splat a single 2D Gaussian onto canvas.
 
         Uses rotated elliptical Gaussian kernel with alpha blending.
 
         Args:
-            canvas: [H, W, 3] RGB canvas (modified in-place)
-            alpha_canvas: [H, W] alpha canvas (modified in-place)
+            canvas: [H, W, 3] RGB canvas
+            alpha_canvas: [H, W] alpha canvas
             mean_2d: [2] center position (u, v)
             scale_2d: [2] scale (sx, sy)
             rotation: scalar rotation angle in radians
             color: [3] RGB color
             opacity: scalar opacity
+
+        Returns:
+            canvas: [H, W, 3] Updated RGB canvas
+            alpha_canvas: [H, W] Updated alpha canvas
         """
         u, v = mean_2d
         sx, sy = scale_2d
@@ -377,7 +383,7 @@ class GaussianRenderer2D(GaussianRenderer):
 
         # Check if Gaussian is out of bounds
         if u_max <= u_min or v_max <= v_min:
-            return
+            return canvas, alpha_canvas
 
         # Create grid for the bounding box
         y_grid, x_grid = torch.meshgrid(
@@ -410,14 +416,22 @@ class GaussianRenderer2D(GaussianRenderer):
         # Compute contribution with alpha blending
         contribution = gauss * transmittance
 
-        # Update canvas (front-to-back blending)
+        # Clone canvas to avoid in-place modification
+        new_canvas = canvas.clone()
+        new_alpha_canvas = alpha_canvas.clone()
+
+        # Update canvas (front-to-back blending) - NON in-place
         for c in range(3):
-            canvas[v_min:v_max+1, u_min:u_max+1, c] += (
-                contribution * color[c]
+            new_canvas[v_min:v_max+1, u_min:u_max+1, c] = (
+                canvas[v_min:v_max+1, u_min:u_max+1, c] + contribution * color[c]
             )
 
-        # Update alpha canvas
-        alpha_canvas[v_min:v_max+1, u_min:u_max+1] += contribution
+        # Update alpha canvas - NON in-place
+        new_alpha_canvas[v_min:v_max+1, u_min:u_max+1] = (
+            alpha_canvas[v_min:v_max+1, u_min:u_max+1] + contribution
+        )
+
+        return new_canvas, new_alpha_canvas
 
 
 def create_renderer(
