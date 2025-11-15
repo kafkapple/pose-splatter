@@ -106,9 +106,9 @@ def sample_nearest_pixels_torch(images, pixel_coords):
     n_cameras, c, h, w = images.shape
     _, N, _ = pixel_coords.shape  # same n_cameras
 
-    # Round coordinates and clamp
-    x = pixel_coords[..., 0].round().long().clamp(min=0, max=w-1)  # [n_cameras, N]
-    y = pixel_coords[..., 1].round().long().clamp(min=0, max=h-1)  # [n_cameras, N]
+    # Round coordinates and clamp (ensure device consistency)
+    x = pixel_coords[..., 0].round().long().clamp(min=0, max=w-1).to(device)  # [n_cameras, N]
+    y = pixel_coords[..., 1].round().long().clamp(min=0, max=h-1).to(device)  # [n_cameras, N]
 
     # We want to index images[k, :, y, x] for each camera k and each point index
     # One way to do that in a batched manner is:
@@ -266,27 +266,28 @@ def compute_voxel_colors_torch(
                                            H, W)  # [C, N] bool
     
     # 2) Project all voxels into all cameras (batched or loop).
-    #    For clarity, we’ll do a loop. 
+    #    For clarity, we'll do a loop.
     #    projected_coords[c] => [N, 2]
     projected_coords = []
     for c_idx in range(C):
         pc = project_points_torch_single_cam(
-            grid_points, 
+            grid_points,
             intrinsic_matrices[c_idx],
             extrinsic_matrices[c_idx]
         )
         projected_coords.append(pc)
     # stacked: [C, N, 2]
-    projected_coords = torch.stack(projected_coords, dim=0)
+    projected_coords = torch.stack(projected_coords, dim=0).to(device)
 
     # 3) Sample colors for each camera from images
-    #    images: [C, H, W, 3]. 
+    #    images: [C, H, W, 3].
     #    So for camera c, pixel = (y,x).
     #    We'll produce an array: [C, N, 3].
-    sampled_colors = sample_nearest_pixels_torch(images, projected_coords)  
+    sampled_colors = sample_nearest_pixels_torch(images, projected_coords)
+    sampled_colors = sampled_colors.to(device)  # Ensure on correct device
 
     # 4) Build weights. If visible => weight=1, else = nonvisible_weight.
-    weights = torch.where(visibility, 
+    weights = torch.where(visibility,
                           torch.tensor(1.0, device=device),
                           torch.tensor(nonvisible_weight, device=device))  # [C, N]
     

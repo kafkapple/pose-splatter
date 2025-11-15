@@ -273,14 +273,47 @@ if __name__ == '__main__':
     volume_fn = os.path.join(config.volume_directory, "volumes.h5")
     dset_args = (img_fn, volume_fn, config.center_rotation_fn, C, config.holdout_views)
 
-    num_workers = len(os.sched_getaffinity(0)) # available CPUs
+    num_workers = min(4, len(os.sched_getaffinity(0))) # Limit to 4 workers to reduce memory usage
     print("num workers:", num_workers)
-    loader_kwargs = dict(batch_size=1, shuffle=True, num_workers=num_workers, prefetch_factor=2)
+    loader_kwargs = dict(batch_size=1, shuffle=True, num_workers=num_workers, prefetch_factor=1)
     dset = FrameDataset(*dset_args, split="train")
     loader = DataLoader(dset, **loader_kwargs)
 
     valid_dset = FrameDataset(*dset_args, split="valid")
     valid_loader = DataLoader(valid_dset, **loader_kwargs)
+
+    # Dataset validation: Verify dataset size matches expected frame count
+    print("\n=== Dataset Validation ===")
+    print(f"Dataset size: {len(dset)} training samples")
+    print(f"Validation size: {len(valid_dset)} samples")
+    print(f"Total frames in dataset: {len(dset.images)}")
+    print(f"Config frame_jump: {config.frame_jump}")
+    print(f"Data directory: {config.data_directory}")
+
+    # Calculate expected frame count based on frame_jump
+    # This is an approximation - actual count depends on original video length
+    # frame_jump=2 should yield ~9000 frames, frame_jump=5 should yield ~3600 frames
+    if hasattr(config, 'frame_jump'):
+        expected_ratio = 5.0 / config.frame_jump  # baseline is frame_jump=5 → 3600 frames
+        baseline_frames = 3600
+        expected_frames = int(baseline_frames * expected_ratio)
+        actual_frames = len(dset.images)
+
+        print(f"Expected frames (approximate): {expected_frames}")
+        if abs(actual_frames - expected_frames) > 500:  # Allow 500 frame tolerance
+            print(f"⚠️  WARNING: Dataset size mismatch detected!")
+            print(f"   Expected ~{expected_frames} frames (frame_jump={config.frame_jump})")
+            print(f"   Found {actual_frames} frames")
+            print(f"   Difference: {abs(actual_frames - expected_frames)} frames")
+            print(f"   This may indicate data was generated with different frame_jump value.")
+            print(f"   To fix: Regenerate data with write_images.py using current config")
+            response = input("Continue training anyway? (y/n): ")
+            if response.lower() != 'y':
+                print("Training aborted. Please regenerate dataset.")
+                quit()
+        else:
+            print("✓ Dataset size validation passed")
+    print("========================\n")
 
     w = config.image_width // config.image_downsample
     h = config.image_height // config.image_downsample
@@ -297,8 +330,15 @@ if __name__ == '__main__':
         volume_fill_color=config.volume_fill_color,
         holdout_views=config.holdout_views,
         adaptive_camera=config.adaptive_camera,
+        gaussian_mode=getattr(config, 'gaussian_mode', '3d'),  # Default to 3D for backward compatibility
+        gaussian_config=getattr(config, 'gaussian_config', {}),
     )
     model.to(device)
+
+    # Log renderer mode
+    print(f"✓ Using {model.gaussian_mode.upper()} Gaussian Splatting renderer")
+    print(f"  - Renderer type: {type(model.renderer).__name__}")
+    print(f"  - Num params per Gaussian: {model.renderer.get_num_params()}")
 
     optimizer = torch.optim.Adam(model.parameters(), lr=config.lr)
 

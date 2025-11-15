@@ -12,6 +12,7 @@ from gsplat.rendering import rasterization
 from .shape_carving import create_3d_grid
 from .shape_carver import ShapeCarver
 from .unet_3d import Unet3D
+from .gaussian_renderer import create_renderer
 
 
 
@@ -40,6 +41,8 @@ class PoseSplatter(nn.Module):
             volume_fill_color=0.45,
             holdout_views=[],
             adaptive_camera=False,
+            gaussian_mode="3d",  # NEW: "2d" or "3d"
+            gaussian_config=None,  # NEW: renderer-specific config
         ):
         super(PoseSplatter, self).__init__()
         assert volume_idx is not None
@@ -60,8 +63,20 @@ class PoseSplatter(nn.Module):
         C = len(intrinsics)
         self.observed_views = [i for i in range(C) if i not in holdout_views]
         self.adaptive_camera = adaptive_camera
-        
+        self.gaussian_mode = gaussian_mode  # NEW
+
         self.background_color = torch.ones(3).to(device)
+
+        # NEW: Create Gaussian renderer
+        self.renderer = create_renderer(
+            mode=gaussian_mode,
+            width=W,
+            height=H,
+            device=device,
+            **(gaussian_config or {})
+        )
+        # Set background color to match model
+        self.renderer.set_background_color(self.background_color)
 
         # Define the camera stuff.
         self.Ks = torch.tensor(intrinsics).to(device, torch.float32) # [6,3,3]
@@ -87,10 +102,12 @@ class PoseSplatter(nn.Module):
         )
 
         # Define the Gaussian parameter network.
+        # Output size depends on renderer mode (2D=9, 3D=14)
+        num_gaussian_params = self.renderer.get_num_params()
         self.gaussian_param_net = nn.Sequential(
             nn.Linear(out_channels, 128),
             nn.ReLU(),
-            nn.Linear(128, 14),
+            nn.Linear(128, num_gaussian_params),
         )
 
         # Define all the U-Nets.
@@ -130,74 +147,176 @@ class PoseSplatter(nn.Module):
         volume = self.process_volume(volume[None])
 
         # Get Gaussian parameters.
-        means, quats, scales, opacities, colors = self.get_gaussian_params_from_volume(volume)
+        gaussian_params = self.get_gaussian_params_from_volume_unified(volume)
 
-        # Rotate and shift the Gaussian means.
-        c, s = np.cos(angle), np.sin(angle)
-        rot_mat = torch.tensor([[c,-s,0], [s,c,0], [0,0,1]]).to(volume.device, torch.float32)
-        means = means @ rot_mat.T + p_3d # [n,3]
+        # Rotate and translate based on pose (for 3D mode)
+        if self.gaussian_mode == "3d":
+            gaussian_params = self.apply_pose_transform_3d(gaussian_params, angle, p_3d)
 
-        # Rotate the quaternions.
-        rot_mat_2 = torch.tensor([[c, -s, 0, 0], [s, c, 0, 0], [0, 0, 1, 0], [0, 0, 0, 1]]).to(quats.device)
-        r = quaternion_matrix_torch_batch(quats)
-        r = torch.einsum("ij,bjk->bik", rot_mat_2.to(torch.float32), r)
-        quats = quaternion_from_matrix_torch_batch(r)
-
+        # Select camera
         if self.adaptive_camera:
-            out_K = temp_K[view_num].view(-1,3,3)
+            out_K = temp_K[view_num]
         else:
-            out_K = self.Ks[view_num].view(-1,3,3)
+            out_K = self.Ks[view_num]
+        viewmat = self.viewmats[view_num]
 
-        # Splat.
-        rgb, alpha = self.splat(
-            means,
-            quats,
-            scales,
-            opacities,
-            colors,
-            self.viewmats[view_num].view(-1,4,4),
+        # Render using unified renderer
+        rgb, alpha = self.renderer.render(
+            gaussian_params,
+            viewmat,
             out_K,
-            self.W,
-            self.H,
         )
-        
+
+        # Add batch dimension to match expected output shape
+        rgb = rgb[None]  # [1, H, W, 3]
+        alpha = alpha[None, ..., None]  # [1, H, W, 1]
+
         return rgb, alpha
     
 
-    def get_gaussian_params_from_volume(self, volume):
+    def get_gaussian_params_from_volume_unified(self, volume):
+        """
+        Extract Gaussian parameters from volume in unified format [N, P].
+
+        Returns:
+            gaussian_params: [N, P] where P=14 for 3D or P=9 for 2D
+        """
         # Figure out which Gaussians to render.
         mt = self.mask_threshold
-        probs = torch.sigmoid(volume[0] - mt) # [n^3]
+        probs = torch.sigmoid(volume[0] - mt)  # [n^3]
         pt = self.prob_threshold
         mask = probs > pt
+
         while mask.sum() > self.max_n:
             mt += self.mask_threshold_delta
-            probs = torch.sigmoid(volume[0] - mt) # [n^3]
+            probs = torch.sigmoid(volume[0] - mt)
             mask = probs > pt
         while mask.sum() < self.min_n:
             mt -= self.mask_threshold_delta
-            probs = torch.sigmoid(volume[0] - mt) # [n^3]
+            probs = torch.sigmoid(volume[0] - mt)
             mask = probs > pt
 
         if mask.sum() > self.max_n:
             indices = torch.nonzero(mask, as_tuple=True)[0]
             rand_idx = torch.randperm(len(indices))[:self.max_n].to(mask.device)
             keep_indices = indices[rand_idx]
-            mask[:] = False  # Reset all values to False
-            mask[keep_indices] = True  # Set only the selected indices to True
-        
-        # Send each Gaussian through an MLP to get parameters.
-        net_out = self.gaussian_param_net(volume[:,mask].T)
-        quats, scales, opacities, colors, delta_means = torch.split(net_out, (4,3,1,3,3), dim=1)
+            mask[:] = False
+            mask[keep_indices] = True
 
-        # Process the parameters so that they're in good ranges.
-        colors = torch.sigmoid(colors).clamp(self.color_clip[0], self.color_clip[1])
-        scales = torch.exp(scales + self.scale[0])  
-        opacities = ((1 / (1 - pt)) * (probs[mask] - pt)).clamp(0.0, 1.0)
-        opacities = torch.sigmoid(opacities)
-        means = self.grid.view(-1,3)[mask] + 2 * self.voxel_size * torch.tanh(delta_means)
+        # Send each Gaussian through MLP
+        net_out = self.gaussian_param_net(volume[:,mask].T)  # [N, P]
 
-        return means, quats, scales, opacities, colors
+        # Process based on mode
+        if self.gaussian_mode == "3d":
+            # 3D mode: [N, 14] = means(3) + scales(3) + quats(4) + colors(3) + opacity(1)
+            # But network outputs deltas for means
+            quats, scales, opacities, colors, delta_means = torch.split(
+                net_out, (4, 3, 1, 3, 3), dim=1
+            )
+
+            # Process parameters
+            colors = torch.sigmoid(colors).clamp(self.color_clip[0], self.color_clip[1])
+            log_scales = scales + self.scale[0]  # Keep as log for renderer
+            logit_opacities = torch.logit(
+                ((1 / (1 - pt)) * (probs[mask] - pt)).clamp(1e-6, 1.0 - 1e-6)
+            ).unsqueeze(-1) # Ensure [N, 1]
+            means = self.grid.view(-1,3)[mask] + 2 * self.voxel_size * torch.tanh(delta_means)
+
+            # Concatenate: means, log_scales, quats, colors, logit_opacities
+            gaussian_params = torch.cat([
+                means,           # [N, 3]
+                log_scales,      # [N, 3]
+                quats,           # [N, 4]
+                colors,          # [N, 3]
+                logit_opacities, # [N, 1]
+            ], dim=1)  # [N, 14]
+
+        else:  # 2D mode
+            # 2D mode: [N, 9] = means_2d(2) + scales_2d(2) + rotation(1) + colors(3) + opacity(1)
+            means_2d, scales_2d, rotation, colors, opacities = torch.split(
+                net_out, (2, 2, 1, 3, 1), dim=1
+            )
+
+            # Process parameters
+            colors = torch.sigmoid(colors).clamp(self.color_clip[0], self.color_clip[1])
+            log_scales_2d = scales_2d + self.scale[0]  # Keep as log
+            logit_opacities = torch.logit(
+                ((1 / (1 - pt)) * (probs[mask] - pt)).clamp(1e-6, 1.0 - 1e-6)
+            ).unsqueeze(-1) # Ensure [N, 1]
+
+            # Concatenate
+            gaussian_params = torch.cat([
+                means_2d,        # [N, 2]
+                log_scales_2d,   # [N, 2]
+                rotation,        # [N, 1]
+                colors,          # [N, 3]
+                logit_opacities, # [N, 1]
+            ], dim=1)  # [N, 9]
+
+        return gaussian_params
+
+    def apply_pose_transform_3d(self, gaussian_params, angle, p_3d):
+        """
+        Apply pose transformation to 3D Gaussian parameters.
+
+        Args:
+            gaussian_params: [N, 14]
+            angle: rotation angle
+            p_3d: translation [3]
+
+        Returns:
+            transformed_params: [N, 14]
+        """
+        # Parse parameters
+        means = gaussian_params[:, 0:3]
+        log_scales = gaussian_params[:, 3:6]
+        quats = gaussian_params[:, 6:10]
+        colors = gaussian_params[:, 10:13]
+        logit_opacities = gaussian_params[:, 13:14]
+
+        # Rotate and translate means
+        c, s = np.cos(angle), np.sin(angle)
+        rot_mat = torch.tensor([[c,-s,0], [s,c,0], [0,0,1]]).to(means.device, torch.float32)
+        p_3d_device = p_3d.to(means.device) if isinstance(p_3d, torch.Tensor) else torch.tensor(p_3d).to(means.device, torch.float32)
+        means = means @ rot_mat.T + p_3d_device
+
+        # Rotate quaternions
+        rot_mat_2 = torch.tensor([[c, -s, 0, 0], [s, c, 0, 0], [0, 0, 1, 0], [0, 0, 0, 1]]).to(quats.device)
+        r = quaternion_matrix_torch_batch(quats)
+        r = torch.einsum("ij,bjk->bik", rot_mat_2.to(torch.float32), r)
+        quats = quaternion_from_matrix_torch_batch(r)
+
+        # Reassemble
+        transformed_params = torch.cat([
+            means,
+            log_scales,
+            quats,
+            colors,
+            logit_opacities,
+        ], dim=1)
+
+        return transformed_params
+
+    def get_gaussian_params_from_volume(self, volume):
+        """
+        Legacy method for backward compatibility.
+        Returns individual components instead of unified tensor.
+        """
+        gaussian_params = self.get_gaussian_params_from_volume_unified(volume)
+
+        if self.gaussian_mode == "3d":
+            means = gaussian_params[:, 0:3]
+            log_scales = gaussian_params[:, 3:6]
+            quats = gaussian_params[:, 6:10]
+            colors = gaussian_params[:, 10:13]
+            logit_opacities = gaussian_params[:, 13:14]
+
+            scales = torch.exp(log_scales)
+            opacities = torch.sigmoid(logit_opacities)
+
+            return means, quats, scales, opacities, colors
+        else:
+            raise NotImplementedError("Legacy method only supports 3D mode")
     
 
     def process_volume(self, volume):
