@@ -31,45 +31,76 @@ pip install gsplat torchmetrics matplotlib seaborn pandas tabulate h5py zarr
 
 #### Dataset Setup
 
-This project uses the **DANNCE `markerless_mouse_1` dataset** for demonstration.
+This project uses the **DANNCE `markerless_mouse_1` dataset** preprocessed by the MAMMAL_mouse project.
 
-**Option 1: Demo Data (Quick Start)**
+**Quick Start: Copy from MAMMAL_mouse Repository**
+
+If you have already cloned the MAMMAL_mouse repository:
+
 ```bash
-# Download demo videos
-wget -O vids.zip https://tinyurl.com/DANNCEmm1vids
-unzip vids.zip -d data/markerless_mouse_1_nerf/
+# Create target directory
+mkdir -p data/markerless_mouse_1_nerf
 
-# Download preprocessed data from Google Drive
-# Includes: undistorted videos, 2D keypoints, silhouettes
-# See: https://github.com/tqxli/dannce-pytorch
+# Copy preprocessed data from MAMMAL_mouse
+cp -r /path/to/MAMMAL_mouse/data/examples/markerless_mouse_1_nerf/* \
+      data/markerless_mouse_1_nerf/
+
+# Example (if MAMMAL_mouse is in ~/dev):
+cp -r ~/dev/MAMMAL_mouse/data/examples/markerless_mouse_1_nerf/* \
+      data/markerless_mouse_1_nerf/
 ```
 
-**Option 2: Full Training Dataset**
-- Access via [Duke Research Data Repository](https://github.com/tqxli/dannce-pytorch)
-- Follow instructions in the DANNCE-PyTorch repository
+**Alternative: Download MAMMAL_mouse Repository**
+
+```bash
+# Clone MAMMAL_mouse repository
+git clone https://github.com/kafkapple/MAMMAL_mouse.git /tmp/MAMMAL_mouse
+
+# Copy example data
+cp -r /tmp/MAMMAL_mouse/data/examples/markerless_mouse_1_nerf/* \
+      data/markerless_mouse_1_nerf/
+```
 
 **Expected Data Structure**:
 ```
 data/markerless_mouse_1_nerf/
-├── videos_undist/          # 6-camera RGB videos (128MB)
-│   ├── 0.mp4              # Camera 0: 1152×1024, 18K frames
-│   ├── 1.mp4 ... 5.mp4    # Cameras 1-5
-├── simpleclick_undist/     # Segmentation masks (64MB)
-│   ├── 0.mp4 ... 5.mp4    # Binary masks for each camera
-├── camera_params.h5        # Camera calibration (5KB)
-└── keypoints2d_undist/     # 2D keypoint detections (55MB)
+├── videos_undist/              # 6-camera RGB videos (128MB)
+│   ├── 0.mp4                  # Camera 0: 25MB
+│   ├── 1.mp4 ... 5.mp4        # Cameras 1-5: 17-24MB each
+├── simpleclick_undist/         # Segmentation masks (64MB)
+│   ├── 0.mp4 ... 5.mp4        # Binary masks: 11MB each
+├── keypoints2d_undist/         # 2D keypoint detections (55MB)
+│   ├── result_view_0.pkl      # Keypoints for camera 0: 9.1MB
+│   ├── result_view_1.pkl ... result_view_5.pkl
+├── new_cam.pkl                 # Camera calibration (54MB)
+├── add_labels_3d_8keypoints.pkl  # 3D keypoint labels (13KB)
+├── label_ids.pkl               # Label ID mapping
+└── readme.md                   # Dataset notes
 ```
+
+**File Format Details**:
+- **Videos (MP4)**: RGB videos and binary segmentation masks
+- **Keypoints (PKL)**: Pickle files with 2D keypoint detections per camera
+- **Camera Params (PKL)**: Camera intrinsics, extrinsics, distortion coefficients
+- **Labels (PKL)**: 3D ground truth keypoints and label mappings
 
 **Dataset Specifications**:
 - **Cameras**: 6 synchronized views
-- **Resolution**: 1152 × 1024 pixels
+- **Resolution**: ~1152 × 1024 pixels (varies by camera)
 - **Frame Rate**: 100 FPS
-- **Total Frames**: 18,000 (3 minutes)
+- **Total Frames**: ~18,000 frames (note: jumps at frames 5900, 11800, 17700)
 - **Subject**: Mouse in natural behavior
 
-**Citation**:
+**Dataset Notes**:
+- This dataset is preprocessed from the original DANNCE `markerless_mouse_1` dataset
+- Videos have been undistorted and synchronized
+- 2D keypoints have been detected using pose estimation models
+- Binary masks have been generated using SimpleClick segmentation
+
+**Original Data Sources**:
 - Original DANNCE: [spoonsso/DANNCE](https://github.com/spoonsso/DANNCE)
 - PyTorch Implementation: [tqxli/dannce-pytorch](https://github.com/tqxli/dannce-pytorch)
+- MAMMAL_mouse: Preprocessed version with multi-animal tracking support
 
 ---
 
@@ -155,45 +186,79 @@ python --version  # Should be 3.10+
 
 #### Step 3: Data Preparation
 
-**Download Dataset**:
+**Option 1: Copy from MAMMAL_mouse Repository (Recommended)**
+
+If you have the MAMMAL_mouse repository cloned locally:
 
 ```bash
 # Create data directory
 mkdir -p data/markerless_mouse_1_nerf
 
-# Option 1: Download from Duke Research Data Repository
-# Follow instructions at: https://github.com/tqxli/dannce-pytorch
+# Copy preprocessed data
+cp -r ~/dev/MAMMAL_mouse/data/examples/markerless_mouse_1_nerf/* \
+      data/markerless_mouse_1_nerf/
 
-# Option 2: If you have the dataset on another machine, transfer it
-# rsync -avz --progress user@source:/path/to/data/ data/markerless_mouse_1_nerf/
+# Or specify your MAMMAL_mouse path
+cp -r /path/to/MAMMAL_mouse/data/examples/markerless_mouse_1_nerf/* \
+      data/markerless_mouse_1_nerf/
+```
+
+**Option 2: Clone MAMMAL_mouse and Copy**
+
+```bash
+# Clone MAMMAL_mouse repository
+git clone https://github.com/kafkapple/MAMMAL_mouse.git /tmp/MAMMAL_mouse
+
+# Copy example data
+cp -r /tmp/MAMMAL_mouse/data/examples/markerless_mouse_1_nerf/* \
+      data/markerless_mouse_1_nerf/
+```
+
+**Option 3: Transfer from Remote Server**
+
+```bash
+# If dataset is on another machine
+rsync -avz --progress user@server:/path/to/MAMMAL_mouse/data/examples/markerless_mouse_1_nerf/ \
+      data/markerless_mouse_1_nerf/
 ```
 
 **Expected Data Structure**:
 
 ```bash
 data/markerless_mouse_1_nerf/
-├── videos_undist/          # 6-camera RGB videos (128MB)
-│   ├── 0.mp4              # Camera 0: 1152×1024, 18K frames
-│   ├── 1.mp4 ... 5.mp4    # Cameras 1-5
-├── simpleclick_undist/     # Segmentation masks (64MB)
-│   ├── 0.mp4 ... 5.mp4
-├── camera_params.h5        # Camera calibration (5KB)
-└── keypoints2d_undist/     # 2D keypoint detections (55MB)
-    └── (keypoint files)
+├── videos_undist/              # 6-camera RGB videos (128MB)
+│   ├── 0.mp4                  # Camera 0: 25MB
+│   ├── 1.mp4 ... 5.mp4        # Cameras 1-5: 17-24MB each
+├── simpleclick_undist/         # Segmentation masks (64MB)
+│   ├── 0.mp4 ... 5.mp4        # Binary masks: 11MB each
+├── keypoints2d_undist/         # 2D keypoint detections (55MB)
+│   ├── result_view_0.pkl      # Keypoints for camera 0: 9.1MB
+│   ├── result_view_1.pkl ... result_view_5.pkl
+├── new_cam.pkl                 # Camera calibration (54MB)
+├── add_labels_3d_8keypoints.pkl  # 3D keypoint labels (13KB)
+├── label_ids.pkl               # Label ID mapping
+└── readme.md                   # Dataset notes
 ```
 
 **Verify Dataset**:
 
 ```bash
-# Check data structure
-tree -L 2 data/markerless_mouse_1_nerf/
+# Quick verification - check file counts and sizes
+ls -lh data/markerless_mouse_1_nerf/videos_undist/      # Should show 6 MP4 files
+ls -lh data/markerless_mouse_1_nerf/simpleclick_undist/ # Should show 6 MP4 files
+ls -lh data/markerless_mouse_1_nerf/keypoints2d_undist/ # Should show 6 PKL files
+du -sh data/markerless_mouse_1_nerf/                    # Should show ~299MB
 
-# Verify video files
-ls -lh data/markerless_mouse_1_nerf/videos_undist/
-ls -lh data/markerless_mouse_1_nerf/simpleclick_undist/
+# Comprehensive verification (recommended)
+python scripts/utils/verify_mammal_data.py
 
-# Optional: Run dataset verification script
-python verify_datasets.py
+# This checks:
+# - All 6 camera RGB videos (videos_undist/)
+# - All 6 segmentation masks (simpleclick_undist/)
+# - All 6 keypoint files (keypoints2d_undist/)
+# - Camera calibration (new_cam.pkl)
+# - 3D keypoint labels (add_labels_3d_8keypoints.pkl)
+# - Label ID mapping (label_ids.pkl)
 ```
 
 #### Step 4: Preprocessing Pipeline
