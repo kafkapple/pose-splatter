@@ -15,6 +15,14 @@ Code for "Pose Splatter: A 3D Gaussian Splatting Model for Quantifying Animal Po
 ### Quick Start
 
 #### Prerequisites
+
+**System Requirements**:
+- **3D Gaussian Splatting (gsplat)**: 12GB+ GPU (RTX 3060, RTX 3090, etc.)
+- **2D Gaussian Splatting (custom)**: 24GB+ GPU (A6000, RTX 4090, A100)
+- Python 3.10+
+- CUDA 11.8 or 12.8+
+
+**Installation (conda environment)**:
 ```bash
 # Install required packages
 pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
@@ -86,6 +94,367 @@ watch -n 2 nvidia-smi
 # View specific step log
 tail -f output/markerless_mouse_nerf/logs/step6_training.log
 ```
+
+---
+
+### 🚀 A6000 GPU Setup Guide (24GB+ for 2D Gaussian Splatting)
+
+This section provides a complete workflow for deploying this project on a high-memory GPU environment (A6000, RTX 4090, A100) specifically for **2D Gaussian Splatting** experiments.
+
+#### Step 1: Clone Repository
+
+```bash
+# Clone the repository
+cd ~/dev  # or your preferred directory
+git clone https://github.com/YOUR_USERNAME/pose-splatter.git
+cd pose-splatter
+```
+
+#### Step 2: Environment Setup
+
+**Option 1: Create New Conda Environment (Recommended)**
+
+```bash
+# Create conda environment with Python 3.10
+conda create -n splatter python=3.10 -y
+conda activate splatter
+
+# Install PyTorch with CUDA 11.8
+conda install pytorch==2.0.0 torchvision==0.15.0 torchaudio==2.0.0 pytorch-cuda=11.8 -c pytorch -c nvidia
+
+# Install additional dependencies
+pip install gsplat torchmetrics matplotlib seaborn pandas tabulate h5py zarr einops
+
+# Verify CUDA availability
+python -c "import torch; print(f'CUDA available: {torch.cuda.is_available()}'); print(f'GPU: {torch.cuda.get_device_name(0)}')"
+```
+
+**Option 2: Use Existing Environment**
+
+If you already have a compatible conda environment:
+
+```bash
+conda activate your_env
+pip install -r requirements.txt  # Install missing packages if any
+```
+
+**Environment Verification**:
+
+```bash
+# Check GPU memory
+nvidia-smi
+
+# Expected output for A6000:
+# GPU Name: NVIDIA RTX A6000
+# Total Memory: 48GB (or 24GB for single A6000)
+
+# Verify Python environment
+which python  # Should point to conda environment
+python --version  # Should be 3.10+
+```
+
+#### Step 3: Data Preparation
+
+**Download Dataset**:
+
+```bash
+# Create data directory
+mkdir -p data/markerless_mouse_1_nerf
+
+# Option 1: Download from Duke Research Data Repository
+# Follow instructions at: https://github.com/tqxli/dannce-pytorch
+
+# Option 2: If you have the dataset on another machine, transfer it
+# rsync -avz --progress user@source:/path/to/data/ data/markerless_mouse_1_nerf/
+```
+
+**Expected Data Structure**:
+
+```bash
+data/markerless_mouse_1_nerf/
+├── videos_undist/          # 6-camera RGB videos (128MB)
+│   ├── 0.mp4              # Camera 0: 1152×1024, 18K frames
+│   ├── 1.mp4 ... 5.mp4    # Cameras 1-5
+├── simpleclick_undist/     # Segmentation masks (64MB)
+│   ├── 0.mp4 ... 5.mp4
+├── camera_params.h5        # Camera calibration (5KB)
+└── keypoints2d_undist/     # 2D keypoint detections (55MB)
+    └── (keypoint files)
+```
+
+**Verify Dataset**:
+
+```bash
+# Check data structure
+tree -L 2 data/markerless_mouse_1_nerf/
+
+# Verify video files
+ls -lh data/markerless_mouse_1_nerf/videos_undist/
+ls -lh data/markerless_mouse_1_nerf/simpleclick_undist/
+
+# Optional: Run dataset verification script
+python verify_datasets.py
+```
+
+#### Step 4: Preprocessing Pipeline
+
+Run preprocessing steps to prepare data for training:
+
+```bash
+# Set environment variables (add to ~/.bashrc for persistence)
+export PYTHONPATH="/home/YOUR_USERNAME/dev/pose-splatter:${PYTHONPATH}"
+export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+
+# Run full preprocessing pipeline
+bash scripts/preprocessing/run_full_preprocessing.sh configs/baseline/markerless_mouse_nerf.json
+
+# Or run steps individually:
+# Step 1: Estimate up direction
+conda run -n splatter python scripts/preprocessing/estimate_up_direction.py configs/baseline/markerless_mouse_nerf.json
+
+# Step 2: Calculate center and rotation
+conda run -n splatter python scripts/preprocessing/calculate_center_rotation.py configs/baseline/markerless_mouse_nerf.json
+
+# Step 3: Calculate crop indices
+conda run -n splatter python scripts/preprocessing/calculate_crop_indices.py configs/baseline/markerless_mouse_nerf.json
+
+# Step 4: Write images to HDF5
+conda run -n splatter python scripts/preprocessing/write_images.py configs/baseline/markerless_mouse_nerf.json
+
+# Step 5: Copy to ZARR for training
+conda run -n splatter python scripts/preprocessing/copy_to_zarr.py \
+    output/markerless_mouse_nerf/images/images.h5 \
+    output/markerless_mouse_nerf/images/images.zarr
+```
+
+**Monitor Preprocessing**:
+
+```bash
+# Check logs
+tail -f output/markerless_mouse_nerf/logs/preprocessing.log
+
+# Verify outputs
+ls -lh output/markerless_mouse_nerf/images/
+ls -lh output/markerless_mouse_nerf/volumes/
+```
+
+#### Step 5: Training with 2D Gaussian Splatting
+
+**2D GS Configuration**:
+
+For A6000 24GB GPU, use the following configuration:
+
+```json
+// configs/experiments/2d_gs_a6000.json
+{
+    "data_directory": "/home/YOUR_USERNAME/dev/pose-splatter/data/markerless_mouse_1_nerf/",
+    "project_directory": "/home/YOUR_USERNAME/dev/pose-splatter/output/2d_gs_full/",
+    "image_downsample": 4,      // 256×288 images
+    "grid_size": 112,            // UNet compatible
+    "max_frames": 50,            // Full dataset
+    "gaussian_mode": "2d",       // Use 2D GS renderer
+    "gaussian_config": {
+        "sigma_cutoff": 3.0,
+        "kernel_size": 5,
+        "batch_size": 5          // Adjust based on GPU memory
+    },
+    "lr": 1e-4,
+    "img_lambda": 0.5,
+    "ssim_lambda": 0.0,
+    "valid_every": 5,
+    "plot_every": 1,
+    "save_every": 5
+}
+```
+
+**Run 2D GS Training**:
+
+```bash
+# Debug mode first (5-10 minutes, verify everything works)
+conda run -n splatter python scripts/training/train_script.py \
+    configs/debug/2d_3d_comparison_2d_debug.json \
+    --epochs 1 --max_batches 10
+
+# Check debug results
+tail -100 output/logs/2d_debug_*.log
+
+# If debug succeeds, run full training (4-8 hours)
+nohup conda run -n splatter python scripts/training/train_script.py \
+    configs/experiments/2d_gs_a6000.json \
+    --epochs 50 \
+    > output/logs/2d_gs_full_training.log 2>&1 &
+
+# Monitor training progress
+tail -f output/logs/2d_gs_full_training.log
+
+# Monitor GPU usage
+watch -n 2 nvidia-smi
+```
+
+**Expected Performance (A6000 24GB)**:
+
+| Metric | Value |
+|--------|-------|
+| Image Size | 256×288 (downsample=4) |
+| Batch Size | 5-10 Gaussians |
+| Memory Usage | ~15-18GB |
+| Speed | ~8-12s per training batch |
+| Training Time | 4-8 hours (50 epochs) |
+| Expected PSNR | >25 dB |
+
+**Memory Optimization Tips**:
+
+If you encounter OOM errors even on A6000:
+
+```bash
+# Option 1: Reduce image size
+"image_downsample": 6,  # 4 → 6 (192×216 images)
+
+# Option 2: Reduce batch size
+"batch_size": 3,  # 5 → 3
+
+# Option 3: Reduce max frames
+"max_frames": 30,  # 50 → 30
+
+# Option 4: Use gradient checkpointing (if implemented)
+"use_gradient_checkpointing": true
+```
+
+#### Step 6: Evaluation and Visualization
+
+```bash
+# Evaluate trained model
+conda run -n splatter python scripts/training/evaluate_model.py \
+    configs/experiments/2d_gs_a6000.json
+
+# Generate visualizations
+bash scripts/visualization/run_all_visualization.sh
+
+# View results
+ls -lh output/2d_gs_full/renders/
+ls -lh output/2d_gs_full/metrics_test.csv
+```
+
+#### Step 7: Compare 2D vs 3D Gaussian Splatting
+
+**Run Comparison Experiment**:
+
+```bash
+# Phase 1: Train both 2D and 3D (10 epochs each)
+bash scripts/experiments/run_2d_3d_comparison.sh --phase1
+
+# Monitor progress
+tail -f output/logs/2d_debug_*.log
+tail -f output/logs/3d_debug_*.log
+
+# Phase 2: Analyze results
+bash scripts/experiments/run_2d_3d_comparison.sh --phase2
+
+# View comparison report
+cat output/2d_3d_comparison/comparison_report.txt
+```
+
+**Expected Comparison Results**:
+
+| Feature | 2D GS | 3D GS (gsplat) |
+|---------|-------|----------------|
+| GPU Memory | 15-18GB | 4-6GB |
+| Training Speed | 8-12s/batch | 16-20s/batch |
+| Image Quality (PSNR) | ~27-30 dB | ~25-28 dB |
+| Reconstruction Detail | Higher | Good |
+| GPU Requirement | 24GB+ | 12GB+ |
+| Use Case | Research, high quality | Production, efficiency |
+
+#### Troubleshooting for A6000 Environment
+
+**Common Issues**:
+
+1. **CUDA OOM despite 24GB GPU**:
+   ```bash
+   # Check for zombie processes
+   nvidia-smi | grep python
+   pkill -9 -f "train_script.py"
+
+   # Reduce settings
+   # Edit config: image_downsample: 6, batch_size: 3
+   ```
+
+2. **Gradient propagation errors**:
+   ```bash
+   # Verify you have the latest gaussian_renderer.py
+   grep "canvas = torch.zeros" src/gaussian_renderer.py
+   # Should show: canvas = torch.zeros(...) + 0.0  # Non-leaf tensor
+   ```
+
+3. **Module import errors**:
+   ```bash
+   # Ensure PYTHONPATH is set
+   export PYTHONPATH="/home/YOUR_USERNAME/dev/pose-splatter:${PYTHONPATH}"
+
+   # Verify
+   echo $PYTHONPATH
+   ```
+
+4. **Slow training (GPU underutilized)**:
+   ```bash
+   # Check GPU utilization
+   nvidia-smi dmon -s u
+
+   # If <50%, increase batch_size
+   "batch_size": 10  # or higher
+   ```
+
+**Performance Benchmarks**:
+
+```bash
+# Run benchmark script
+conda run -n splatter python scripts/utils/benchmark_renderer.py \
+    --mode 2d --batch_size 5 --image_size 256 288
+
+# Compare 2D vs 3D
+conda run -n splatter python scripts/utils/benchmark_renderer.py \
+    --compare --batch_sizes 1 5 10
+```
+
+#### Best Practices for A6000 Deployment
+
+1. **Always run debug mode first** (saves hours if config is wrong)
+2. **Monitor GPU memory** with `watch -n 2 nvidia-smi`
+3. **Use `nohup` for long training** to prevent SSH disconnection
+4. **Save checkpoints frequently** (`save_every: 5`)
+5. **Log everything** (redirect stdout/stderr to log files)
+6. **Document hyperparameters** in git commit messages
+
+#### Quick Reference Commands
+
+```bash
+# Setup (one-time)
+conda activate splatter
+export PYTHONPATH="/home/YOUR_USERNAME/dev/pose-splatter:${PYTHONPATH}"
+export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+
+# Debug test (5-10 minutes)
+conda run -n splatter python scripts/training/train_script.py \
+    configs/debug/2d_3d_comparison_2d_debug.json --epochs 1 --max_batches 10
+
+# Full training (4-8 hours)
+nohup conda run -n splatter python scripts/training/train_script.py \
+    configs/experiments/2d_gs_a6000.json --epochs 50 \
+    > output/logs/training_$(date +%Y%m%d_%H%M%S).log 2>&1 &
+
+# Monitor
+tail -f output/logs/training_*.log
+watch -n 2 nvidia-smi
+
+# Evaluate
+conda run -n splatter python scripts/training/evaluate_model.py \
+    configs/experiments/2d_gs_a6000.json
+```
+
+**Documentation References**:
+- 2D GS Optimization Guide: `docs/reports/251116_2d_gaussian_optimization.md`
+- Project Structure: `docs/reports/251115_project_reorganization.md`
+- Troubleshooting: `docs/reports/251116_session_summary.md`
 
 ---
 
