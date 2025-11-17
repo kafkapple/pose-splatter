@@ -171,6 +171,30 @@ watch -n 2 nvidia-smi
 tail -f output/markerless_mouse_nerf/logs/step6_training.log
 ```
 
+#### Troubleshooting
+
+**Common Issues**:
+
+1. **NumPy Version Conflict**
+   ```bash
+   # Error: "NumPy 1.x cannot be run in NumPy 2.0.1"
+   bash scripts/utils/fix_environment.sh
+   ```
+
+2. **ModuleNotFoundError: torch_scatter**
+   ```bash
+   # Auto-fix all environment issues
+   bash scripts/utils/fix_environment.sh
+   ```
+
+3. **Import errors on different servers**
+   ```bash
+   # Use the wrapper script (handles PYTHONPATH automatically)
+   bash scripts/training/run_training.sh configs/templates/a6000_2d.json
+   ```
+
+**Complete troubleshooting guide**: [docs/troubleshooting/environment_errors.md](docs/troubleshooting/environment_errors.md)
+
 ---
 
 ### 🚀 A6000 GPU Setup Guide (24GB+ for 2D Gaussian Splatting)
