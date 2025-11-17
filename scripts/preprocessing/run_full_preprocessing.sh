@@ -103,8 +103,8 @@ echo -e "Output directory: ${GREEN}$OUTPUT_DIR${NC}"
 echo -e "Logs directory: ${GREEN}$LOG_DIR${NC}"
 echo ""
 
-# Parse config to get data directory
-DATA_DIR=$(python -c "import json; print(json.load(open('$CONFIG_FILE'))['data_directory'])")
+# Parse config to get data directory (handle both relative and absolute paths)
+DATA_DIR=$(python -c "import json, os; d=json.load(open('$CONFIG_FILE'))['data_directory']; print(d if os.path.isabs(d) else os.path.join(os.getcwd(), d))")
 echo -e "Data directory: ${GREEN}$DATA_DIR${NC}"
 echo ""
 
@@ -116,9 +116,29 @@ echo -e "${BLUE}================================${NC}"
 CAMERA_SRC="$DATA_DIR/camera_params.h5"
 CAMERA_DST="$OUTPUT_DIR/camera_params.h5"
 
+# Check if camera_params.h5 exists, if not try to convert from new_cam.pkl
 if [ ! -f "$CAMERA_SRC" ]; then
-    echo -e "${RED}Error: Camera parameters not found: $CAMERA_SRC${NC}"
-    exit 1
+    CAMERA_PKL="$DATA_DIR/new_cam.pkl"
+    if [ -f "$CAMERA_PKL" ]; then
+        echo -e "${YELLOW}camera_params.h5 not found, converting from new_cam.pkl...${NC}"
+        if [ -z "$CONDA_PREFIX" ]; then
+            python scripts/preprocessing/convert_camera_params.py "$CAMERA_PKL" "$CAMERA_SRC"
+        else
+            $CONDA_PREFIX python scripts/preprocessing/convert_camera_params.py "$CAMERA_PKL" "$CAMERA_SRC"
+        fi
+        if [ $? -eq 0 ]; then
+            echo -e "${GREEN}✓ Converted new_cam.pkl to camera_params.h5${NC}"
+        else
+            echo -e "${RED}Error: Failed to convert camera parameters${NC}"
+            exit 1
+        fi
+    else
+        echo -e "${RED}Error: Neither camera_params.h5 nor new_cam.pkl found in: $DATA_DIR${NC}"
+        echo -e "${YELLOW}Expected files:${NC}"
+        echo -e "  - $CAMERA_SRC (preferred)"
+        echo -e "  - $CAMERA_PKL (will be converted)"
+        exit 1
+    fi
 fi
 
 cp "$CAMERA_SRC" "$CAMERA_DST"

@@ -1,6 +1,6 @@
 {
-    "data_directory": "/home/joon/dev/pose-splatter/data/markerless_mouse_1_nerf/",
-    "project_directory": "/home/joon/dev/pose-splatter/output/markerless_mouse_nerf/",
+    "data_directory": "data/markerless_mouse_1_nerf/",
+    "project_directory": "output/markerless_mouse_nerf/",
     "mask_video_fns": [
         "simpleclick_undist/0.mp4",
         "simpleclick_undist/1.mp4",
