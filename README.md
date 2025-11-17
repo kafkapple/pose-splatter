@@ -104,15 +104,60 @@ data/markerless_mouse_1_nerf/
 
 ---
 
-#### Automated Pipeline (Recommended)
-Run the full pipeline with a single command:
+#### Preprocessing Pipeline
+
+Run the full preprocessing pipeline:
+
 ```bash
-bash run_pipeline_auto.sh
-# or with custom config:
-bash run_pipeline_auto.sh configs/your_config.json
+# Set environment variables
+export PYTHONPATH="$(pwd):${PYTHONPATH}"
+export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+
+# Run preprocessing (20-40 minutes)
+bash scripts/preprocessing/run_full_preprocessing.sh \
+  configs/baseline/markerless_mouse_nerf.json
 ```
 
-This will automatically execute all steps from center calculation to model evaluation.
+This will execute all 5 preprocessing steps:
+1. Camera parameter setup
+2. Up direction estimation
+3. Center & rotation calculation
+4. Crop indices calculation
+5. Image conversion (HDF5 → ZARR)
+
+#### Training
+
+**Quick Start (Recommended)**:
+
+```bash
+# Simple one-line command
+bash scripts/training/run_training.sh \
+  configs/baseline/markerless_mouse_nerf.json --epochs 50
+```
+
+**Manual Execution**:
+
+```bash
+# Activate environment and set paths
+conda activate splatter
+export PYTHONPATH="$(pwd):${PYTHONPATH}"
+
+# Run training
+python scripts/training/train_script.py \
+  configs/baseline/markerless_mouse_nerf.json --epochs 50
+```
+
+**Background Training** (for long runs):
+
+```bash
+# Run in background with nohup
+nohup bash scripts/training/run_training.sh \
+  configs/baseline/markerless_mouse_nerf.json --epochs 50 \
+  > training.log 2>&1 &
+
+# Monitor progress
+tail -f training.log
+```
 
 #### Monitor Progress
 ```bash
@@ -337,21 +382,21 @@ For A6000 24GB GPU, use the following configuration:
 
 ```bash
 # Debug mode first (5-10 minutes, verify everything works)
-conda run -n splatter python scripts/training/train_script.py \
+bash scripts/training/run_training.sh \
     configs/debug/2d_3d_comparison_2d_debug.json \
     --epochs 1 --max_batches 10
 
 # Check debug results
-tail -100 output/logs/2d_debug_*.log
+tail -100 output/markerless_mouse_nerf/logs/training_*.log
 
 # If debug succeeds, run full training (4-8 hours)
-nohup conda run -n splatter python scripts/training/train_script.py \
+nohup bash scripts/training/run_training.sh \
     configs/experiments/2d_gs_a6000.json \
     --epochs 50 \
-    > output/logs/2d_gs_full_training.log 2>&1 &
+    > training_2d_gs.log 2>&1 &
 
 # Monitor training progress
-tail -f output/logs/2d_gs_full_training.log
+tail -f training_2d_gs.log
 
 # Monitor GPU usage
 watch -n 2 nvidia-smi
@@ -502,13 +547,13 @@ export PYTHONPATH="$(pwd):${PYTHONPATH}"  # Or use absolute path
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 
 # Debug test (5-10 minutes)
-conda run -n splatter python scripts/training/train_script.py \
+bash scripts/training/run_training.sh \
     configs/debug/2d_3d_comparison_2d_debug.json --epochs 1 --max_batches 10
 
 # Full training (4-8 hours)
-nohup conda run -n splatter python scripts/training/train_script.py \
+nohup bash scripts/training/run_training.sh \
     configs/experiments/2d_gs_a6000.json --epochs 50 \
-    > output/logs/training_$(date +%Y%m%d_%H%M%S).log 2>&1 &
+    > training_$(date +%Y%m%d_%H%M%S).log 2>&1 &
 
 # Monitor
 tail -f output/logs/training_*.log
@@ -557,7 +602,7 @@ conda run -n splatter python scripts/training/evaluate_model.py \
 
 6. **Train a model:**
     ```bash
-    python3 train_script.py configs/markerless_mouse_nerf.json --epochs 50
+    bash scripts/training/run_training.sh configs/markerless_mouse_nerf.json --epochs 50
     ```
 
 7. **Evaluate model:**
@@ -1053,7 +1098,7 @@ python3 visualize_renders.py \
 
 ```bash
 # 1. Train the model (50 epochs, ~8-12 hours)
-python3 train_script.py configs/markerless_mouse_nerf.json --epochs 50
+bash scripts/training/run_training.sh configs/markerless_mouse_nerf.json --epochs 50
 
 # 2. Evaluate on test set (automatic rendering + metrics)
 python3 evaluate_model.py configs/markerless_mouse_nerf.json
