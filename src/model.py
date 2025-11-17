@@ -312,7 +312,7 @@ class PoseSplatter(nn.Module):
             logit_opacities = gaussian_params[:, 13:14]
 
             scales = torch.exp(log_scales)
-            opacities = torch.sigmoid(logit_opacities)
+            opacities = torch.sigmoid(logit_opacities).squeeze(-1)  # [N, 1] -> [N]
 
             return means, quats, scales, opacities, colors
         else:
