@@ -43,8 +43,13 @@ def verify_datasets():
     config_dir = Path("configs")
     data_base = Path("data")
 
-    # Find all config files
-    configs = list(config_dir.glob("markerless_mouse*.json"))
+    # Find all config files (check subdirectories too)
+    configs = []
+    configs.extend(config_dir.glob("markerless_mouse*.json"))
+    configs.extend(config_dir.glob("*/markerless_mouse*.json"))
+    configs.extend(config_dir.glob("baseline/*.json"))
+    configs.extend(config_dir.glob("debug/*.json"))
+    configs.extend(config_dir.glob("experiments/*.json"))
 
     if not configs:
         print("No config files found!")

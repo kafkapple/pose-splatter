@@ -64,6 +64,27 @@ else
 fi
 echo ""
 
+# Check dependencies
+echo -e "${BLUE}Checking dependencies...${NC}"
+if [ -z "$CONDA_PREFIX" ]; then
+    PYTHON_CMD="python"
+else
+    PYTHON_CMD="conda run -n splatter python"
+fi
+
+$PYTHON_CMD -c "import cv2" 2>/dev/null
+if [ $? -ne 0 ]; then
+    echo -e "${RED}Error: opencv-python not installed${NC}"
+    echo -e "${YELLOW}Installing opencv-python...${NC}"
+    if [ -z "$CONDA_PREFIX" ]; then
+        pip install opencv-python tqdm
+    else
+        conda run -n splatter pip install opencv-python tqdm
+    fi
+    echo -e "${GREEN}✓ opencv-python installed${NC}"
+fi
+echo ""
+
 # Set environment variables
 export PYTHONPATH="$(pwd):${PYTHONPATH}"
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
@@ -73,10 +94,37 @@ echo -e "  PYTHONPATH: $PYTHONPATH"
 echo -e "  PYTORCH_CUDA_ALLOC_CONF: $PYTORCH_CUDA_ALLOC_CONF"
 echo ""
 
-# Create logs directory
-LOG_DIR="output/${PROJECT_NAME}/logs"
+# Create output directories
+OUTPUT_DIR="output/${PROJECT_NAME}"
+LOG_DIR="$OUTPUT_DIR/logs"
 mkdir -p "$LOG_DIR"
+mkdir -p "$OUTPUT_DIR"
+echo -e "Output directory: ${GREEN}$OUTPUT_DIR${NC}"
 echo -e "Logs directory: ${GREEN}$LOG_DIR${NC}"
+echo ""
+
+# Parse config to get data directory
+DATA_DIR=$(python -c "import json; print(json.load(open('$CONFIG_FILE'))['data_directory'])")
+echo -e "Data directory: ${GREEN}$DATA_DIR${NC}"
+echo ""
+
+# Step 0: Copy camera parameters to output directory
+echo -e "${BLUE}================================${NC}"
+echo -e "${BLUE}Step 0: Setup${NC}"
+echo -e "${BLUE}================================${NC}"
+
+CAMERA_SRC="$DATA_DIR/camera_params.h5"
+CAMERA_DST="$OUTPUT_DIR/camera_params.h5"
+
+if [ ! -f "$CAMERA_SRC" ]; then
+    echo -e "${RED}Error: Camera parameters not found: $CAMERA_SRC${NC}"
+    exit 1
+fi
+
+cp "$CAMERA_SRC" "$CAMERA_DST"
+echo -e "${GREEN}✓ Copied camera parameters${NC}"
+echo -e "  From: $CAMERA_SRC"
+echo -e "  To: $CAMERA_DST"
 echo ""
 
 # Function to run a step with logging
@@ -93,11 +141,18 @@ run_step() {
     echo -e "Log: ${GREEN}$log_file${NC}"
     echo ""
 
-    # Run the script
+    # Run the script (use absolute path to ensure correct file)
+    local script_path="$(pwd)/scripts/preprocessing/$script_name"
+
+    if [ ! -f "$script_path" ]; then
+        echo -e "${RED}Error: Script not found: $script_path${NC}"
+        exit 1
+    fi
+
     if [ -z "$CONDA_PREFIX" ]; then
-        python scripts/preprocessing/$script_name "$CONFIG_FILE" 2>&1 | tee "$log_file"
+        python "$script_path" "$CONFIG_FILE" 2>&1 | tee "$log_file"
     else
-        $CONDA_PREFIX python scripts/preprocessing/$script_name "$CONFIG_FILE" 2>&1 | tee "$log_file"
+        $CONDA_PREFIX python "$script_path" "$CONFIG_FILE" 2>&1 | tee "$log_file"
     fi
 
     local exit_code=$?
@@ -112,7 +167,32 @@ run_step() {
 }
 
 # Step 1: Estimate up direction (auto mode)
-run_step 1 "up_direction" "auto_estimate_up.py"
+echo -e "${BLUE}================================${NC}"
+echo -e "${BLUE}Step 1: Estimate up direction${NC}"
+echo -e "${BLUE}================================${NC}"
+
+UP_OUTPUT="$OUTPUT_DIR/vertical_lines.npz"
+LOG_FILE="$LOG_DIR/step1_up_direction.log"
+
+echo -e "Input: ${GREEN}$CAMERA_DST${NC}"
+echo -e "Output: ${GREEN}$UP_OUTPUT${NC}"
+echo -e "Log: ${GREEN}$LOG_FILE${NC}"
+echo ""
+
+if [ -z "$CONDA_PREFIX" ]; then
+    python scripts/preprocessing/auto_estimate_up.py "$CAMERA_DST" "$UP_OUTPUT" 2>&1 | tee "$LOG_FILE"
+else
+    $CONDA_PREFIX python scripts/preprocessing/auto_estimate_up.py "$CAMERA_DST" "$UP_OUTPUT" 2>&1 | tee "$LOG_FILE"
+fi
+
+exit_code=$?
+if [ $exit_code -eq 0 ]; then
+    echo -e "${GREEN}✓ Step 1 completed successfully${NC}"
+else
+    echo -e "${RED}✗ Step 1 failed with exit code $exit_code${NC}"
+    exit $exit_code
+fi
+echo ""
 
 # Step 2: Calculate center and rotation
 run_step 2 "center_rotation" "calculate_center_rotation.py"
