@@ -267,7 +267,8 @@ Run preprocessing steps to prepare data for training:
 
 ```bash
 # Set environment variables (add to ~/.bashrc for persistence)
-export PYTHONPATH="/home/YOUR_USERNAME/dev/pose-splatter:${PYTHONPATH}"
+export PYTHONPATH="$(pwd):${PYTHONPATH}"  # Or use absolute path
+# export PYTHONPATH="/home/YOUR_USERNAME/dev/pose-splatter:${PYTHONPATH}"
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 
 # Run full preprocessing pipeline
@@ -454,7 +455,8 @@ cat output/2d_3d_comparison/comparison_report.txt
 3. **Module import errors**:
    ```bash
    # Ensure PYTHONPATH is set
-   export PYTHONPATH="/home/YOUR_USERNAME/dev/pose-splatter:${PYTHONPATH}"
+   export PYTHONPATH="$(pwd):${PYTHONPATH}"  # Or use absolute path
+# export PYTHONPATH="/home/YOUR_USERNAME/dev/pose-splatter:${PYTHONPATH}"
 
    # Verify
    echo $PYTHONPATH
@@ -495,7 +497,8 @@ conda run -n splatter python scripts/utils/benchmark_renderer.py \
 ```bash
 # Setup (one-time)
 conda activate splatter
-export PYTHONPATH="/home/YOUR_USERNAME/dev/pose-splatter:${PYTHONPATH}"
+export PYTHONPATH="$(pwd):${PYTHONPATH}"  # Or use absolute path
+# export PYTHONPATH="/home/YOUR_USERNAME/dev/pose-splatter:${PYTHONPATH}"
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 
 # Debug test (5-10 minutes)
